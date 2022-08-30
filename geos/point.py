@@ -80,12 +80,34 @@ class Point:
         """Euclidean distance between `self` and `other`."""
         return math.hypot(self.__x - float(other[0]), self.__y - float(other[1]))
 
+    def rotate(
+        self, angle_rad: float, origin: Union[Point, Tuple[float, float]] = (0.0, 0.0)
+    ) -> Point:
+        """Rotate counter-clockwise by `angle_rad` radians around `origin`."""
+        ox, oy = float(origin[0]), float(origin[1])
+        dx, dy = self.__x - ox, self.__y - oy
+        c, s = math.cos(angle_rad), math.sin(angle_rad)
+        return Point(ox + c * dx - s * dy, oy + s * dx + c * dy)
 
-    def isUpperRightTo(self, point: Point) -> bool:
+    def lerp(self, other: Union[Point, Tuple[float, float]], t: float) -> Point:
+        """Linear interpolation `(1 - t) * self + t * other`."""
+        return Point(
+            self.__x + float(t) * (float(other[0]) - self.__x),
+            self.__y + float(t) * (float(other[1]) - self.__y),
+        )
+
+    def is_upper_right_to(self, point: Point) -> bool:
+        """Return True if `self` lies at or above/right of `point`."""
         return self.__x >= point.__x and self.__y >= point.__y
 
-    def minXYCompare(self, point: Point) -> Point:
+    def min_xy(self, point: Point) -> Point:
+        """Return componentwise minimum `(min(x1, x2), min(y1, y2))`."""
         return Point(min(self.__x, point.__x), min(self.__y, point.__y))
 
-    def maxXYCompare(self, point: Point) -> Point:
+    def max_xy(self, point: Point) -> Point:
+        """Return componentwise maximum `(max(x1, x2), max(y1, y2))`."""
         return Point(max(self.__x, point.__x), max(self.__y, point.__y))
+
+    isUpperRightTo = is_upper_right_to
+    minXYCompare = min_xy
+    maxXYCompare = max_xy
