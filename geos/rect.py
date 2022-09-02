@@ -133,9 +133,18 @@ class Rect(GeoShape):
             return self.area()
         raise KeyError(f"Unknown Rect property: {index}")
 
+    def contains_point(self, pt: Union[Point, Tuple[float, float]]) -> bool:
+        """Return True if `(x, y)` lies inside or on the boundary of `self`."""
+        px, py = float(pt[0]), float(pt[1])
+        return (
+            self.__x1 - 1e-9 <= px <= self.__x2 + 1e-9
+            and self.__y1 - 1e-9 <= py <= self.__y2 + 1e-9
+        )
+
     def is_overlapping(
         self, rect: Rect, padding: Union[int, float, Tuple[float, float]] = 0
     ) -> bool:
+        """Check whether `self` and `rect` intersect when expanded by `padding`."""
         if isinstance(padding, (int, float)):
             pad_x, pad_y = float(padding), float(padding)
         else:
@@ -148,6 +157,40 @@ class Rect(GeoShape):
         )
 
     isOverlapping = is_overlapping
+
+    def intersection(self, rect: Rect) -> Optional[Rect]:
+        """Return the exact intersection rectangle, or `None` if disjoint."""
+        ix1 = max(self.__x1, rect.__x1)
+        iy1 = max(self.__y1, rect.__y1)
+        ix2 = min(self.__x2, rect.__x2)
+        iy2 = min(self.__y2, rect.__y2)
+        if ix2 <= ix1 or iy2 <= iy1:
+            return None
+        return Rect(ix1, iy1, ix2, iy2, merge_allowed=self.merge_allowed)
+
+    def intersection_area(self, rect: Rect) -> float:
+        inter = self.intersection(rect)
+        return inter.area() if inter is not None else 0.0
+
+    intersectionArea = intersection_area
+
+    def bounding_union(self, rect: Rect) -> Rect:
+        """Return the smallest axis-aligned rectangle enclosing both `self` and `rect`."""
+        return Rect(
+            min(self.__x1, rect.__x1),
+            min(self.__y1, rect.__y1),
+            max(self.__x2, rect.__x2),
+            max(self.__y2, rect.__y2),
+            merge_allowed=self.merge_allowed,
+        )
+
+    def iou(self, rect: Rect) -> float:
+        """Intersection-over-Union (IoU) in `[0.0, 1.0]`."""
+        inter = self.intersection_area(rect)
+        if inter == 0.0:
+            return 0.0
+        union = self.area() + rect.area() - inter
+        return inter / union if union > 0.0 else 0.0
 
     def update(
         self, rect: Rect, padding: float = 0.0, padded_update: bool = True
