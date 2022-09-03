@@ -184,6 +184,34 @@ class Rect(GeoShape):
             merge_allowed=self.merge_allowed,
         )
 
+    def difference_rects(self, other: Rect) -> List[Rect]:
+        """
+        Decompose the set difference `self \\ other` into up to 4 disjoint
+        non-empty axis-aligned sub-rectangles (bottom, top, left, right strips).
+        """
+        inter = self.intersection(other)
+        if inter is None:
+            return [self.bbox()]
+
+        pieces: List[Rect] = []
+        if inter.y1 > self.__y1 + 1e-9:
+            pieces.append(
+                Rect(self.__x1, self.__y1, self.__x2, inter.y1, merge_allowed=self.merge_allowed)
+            )
+        if self.__y2 > inter.y2 + 1e-9:
+            pieces.append(
+                Rect(self.__x1, inter.y2, self.__x2, self.__y2, merge_allowed=self.merge_allowed)
+            )
+        if inter.x1 > self.__x1 + 1e-9:
+            pieces.append(
+                Rect(self.__x1, inter.y1, inter.x1, inter.y2, merge_allowed=self.merge_allowed)
+            )
+        if self.__x2 > inter.x2 + 1e-9:
+            pieces.append(
+                Rect(inter.x2, inter.y1, self.__x2, inter.y2, merge_allowed=self.merge_allowed)
+            )
+        return pieces
+
     def iou(self, rect: Rect) -> float:
         """Intersection-over-Union (IoU) in `[0.0, 1.0]`."""
         inter = self.intersection_area(rect)
@@ -222,6 +250,24 @@ class Rect(GeoShape):
         return [(y, x) for y in range(y1, y2) for x in range(x1, x2)]
 
     getblocks = get_blocks
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        """
+        Exact Euclidean Signed Distance Field for an axis-aligned box on `pts` `(..., 2)`.
+        Formula: `||max(q, 0)||_2 + min(max(q_x, q_y), 0)` where `q = |p - c| - half_extents`.
+        """
+        pts_arr = np.asarray(pts, dtype=np.float64)
+        cx = 0.5 * (self.__x1 + self.__x2)
+        cy = 0.5 * (self.__y1 + self.__y2)
+        hx = 0.5 * (self.__x2 - self.__x1)
+        hy = 0.5 * (self.__y2 - self.__y1)
+
+        qx = np.abs(pts_arr[..., 0] - cx) - hx
+        qy = np.abs(pts_arr[..., 1] - cy) - hy
+
+        outside = np.hypot(np.maximum(qx, 0.0), np.maximum(qy, 0.0))
+        inside = np.minimum(np.maximum(qx, qy), 0.0)
+        return outside + inside
 
     def __str__(self) -> str:
         return self.__repr__()
