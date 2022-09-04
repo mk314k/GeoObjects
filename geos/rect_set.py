@@ -148,6 +148,43 @@ class RectSet:
 
     addRect = add_rect
 
+    def query_point(
+        self, pt: Union[Point, Tuple[float, float]]
+    ) -> List[Rect]:
+        """Return all rectangles in `self` containing `pt`."""
+        px, py = float(pt[0]), float(pt[1])
+        if self.__blockMode:
+            bx = max(0, int(px // self.__blocksize))
+            by = max(0, int(py // self.__blocksize))
+            cell = self.__grid.get((by, bx), set())
+            return [
+                self.__rects[idx]
+                for idx in sorted(cell)
+                if self.__rects[idx] is not None
+                and self.__rects[idx].contains_point((px, py))
+            ]
+        return [r for r in self if r.contains_point((px, py))]
+
+    def query_rect(
+        self, search_rect: Rect, padding: float = 0.0
+    ) -> List[Rect]:
+        """Return all rectangles in `self` overlapping `search_rect`."""
+        if self.__blockMode:
+            blocks = self._clamp_blocks(search_rect.get_blocks(self.__blocksize))
+            candidate_ids: Set[int] = set()
+            for b in blocks:
+                if b in self.__grid:
+                    candidate_ids.update(self.__grid[b])
+            return [
+                self.__rects[idx]
+                for idx in sorted(candidate_ids)
+                if self.__rects[idx] is not None
+                and self.__rects[idx].is_overlapping(search_rect, padding=padding)
+            ]
+        return [
+            r for r in self if r.is_overlapping(search_rect, padding=padding)
+        ]
+
     def __len__(self) -> int:
         return sum(1 for r in self.__rects if r is not None)
 
