@@ -185,6 +185,67 @@ class RectSet:
             r for r in self if r.is_overlapping(search_rect, padding=padding)
         ]
 
+    @staticmethod
+    def _merge_1d_intervals(
+        intervals: List[Tuple[float, float]]
+    ) -> List[Tuple[float, float]]:
+        if not intervals:
+            return []
+        sorted_iv = sorted(intervals, key=lambda iv: (iv[0], iv[1]))
+        merged: List[Tuple[float, float]] = [sorted_iv[0]]
+        for y1, y2 in sorted_iv[1:]:
+            prev_y1, prev_y2 = merged[-1]
+            if y1 <= prev_y2 + 1e-9:
+                merged[-1] = (prev_y1, max(prev_y2, y2))
+            else:
+                merged.append((y1, y2))
+        return merged
+
+    def decompose_disjoint(self) -> List[Rect]:
+        """
+        Sweep-line decomposition of all rectangles in `self` into a set of pairwise
+        disjoint axis-aligned rectangles whose union equals the exact union of `self`.
+        Adjacent vertical slabs with identical $Y$-intervals are fused horizontally.
+        """
+        rects = [r for r in self if r.area() > 0.0]
+        if not rects:
+            return []
+
+        xs = sorted({r.x1 for r in rects} | {r.x2 for r in rects})
+        active_strips: Dict[Tuple[float, float], Rect] = {}
+        disjoint: List[Rect] = []
+
+        for i in range(len(xs) - 1):
+            x_left, x_right = xs[i], xs[i + 1]
+            if x_right - x_left <= 1e-12:
+                continue
+            y_intervals = [
+                (r.y1, r.y2)
+                for r in rects
+                if r.x1 <= x_left + 1e-9 and r.x2 >= x_right - 1e-9
+            ]
+            merged_y = self._merge_1d_intervals(y_intervals)
+
+            next_active: Dict[Tuple[float, float], Rect] = {}
+            for y1, y2 in merged_y:
+                key = (round(y1, 7), round(y2, 7))
+                if key in active_strips:
+                    prev_r = active_strips.pop(key)
+                    next_active[key] = Rect(prev_r.x1, y1, x_right, y2)
+                else:
+                    next_active[key] = Rect(x_left, y1, x_right, y2)
+
+            for finished in active_strips.values():
+                disjoint.append(finished)
+            active_strips = next_active
+
+        disjoint.extend(active_strips.values())
+        return disjoint
+
+    def union_area(self) -> float:
+        """Exact area of the union of all rectangles in `self` via sweep-line integration."""
+        return sum(r.area() for r in self.decompose_disjoint())
+
     def __len__(self) -> int:
         return sum(1 for r in self.__rects if r is not None)
 
