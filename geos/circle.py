@@ -57,6 +57,33 @@ class Circle(GeoShape):
             return math.hypot(self.center.x - cx, self.center.y - cy) <= self.radius + 1e-9
         raise TypeError(f"Unsupported type for Circle.is_overlapping: {type(other).__name__}")
 
+    def intersection_area(self, other: Circle) -> float:
+        """
+        Exact analytic area of the lens intersection between two circles `self` and `other`.
+        """
+        r1, r2 = self.radius, other.radius
+        d = self.center.distance_to(other.center)
+        if d >= r1 + r2:
+            return 0.0
+        if d <= abs(r1 - r2):
+            r_min = min(r1, r2)
+            return math.pi * r_min * r_min
+
+        a1 = math.acos(max(-1.0, min(1.0, (d * d + r1 * r1 - r2 * r2) / (2.0 * d * r1))))
+        a2 = math.acos(max(-1.0, min(1.0, (d * d + r2 * r2 - r1 * r1) / (2.0 * d * r2))))
+        term = max(
+            0.0,
+            (-d + r1 + r2) * (d + r1 - r2) * (d - r1 + r2) * (d + r1 + r2),
+        )
+        return r1 * r1 * a1 + r2 * r2 * a2 - 0.5 * math.sqrt(term)
+
+    def iou(self, other: Circle) -> float:
+        inter = self.intersection_area(other)
+        if inter == 0.0:
+            return 0.0
+        union = self.area() + other.area() - inter
+        return inter / union if union > 0.0 else 0.0
+
     def sdf(self, pts: np.ndarray) -> np.ndarray:
         """Exact Euclidean SDF `||p - center||_2 - radius` on `pts` of shape `(..., 2)`."""
         pts_arr = np.asarray(pts, dtype=np.float64)
