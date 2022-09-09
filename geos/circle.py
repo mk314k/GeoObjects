@@ -100,3 +100,76 @@ class Circle(GeoShape):
 
     def __repr__(self) -> str:
         return f"Circle(center={self.center}, radius={self.radius})"
+
+
+class Ellipse(GeoShape):
+    """
+    2D ellipse with semi-axes `(rx, ry)` centered at `center` and rotated
+    counter-clockwise by `angle_rad` radians.
+    """
+
+    def __init__(
+        self,
+        center: Union[Point, Tuple[float, float]],
+        rx: float,
+        ry: float,
+        angle_rad: float = 0.0,
+    ) -> None:
+        if rx <= 0 or ry <= 0:
+            raise ValueError("Ellipse semi-axes rx and ry must be positive")
+        self.center = center if isinstance(center, Point) else Point(center[0], center[1])
+        self.rx = float(rx)
+        self.ry = float(ry)
+        self.angle_rad = float(angle_rad)
+
+    def area(self) -> float:
+        return math.pi * self.rx * self.ry
+
+    def perimeter(self) -> float:
+        """Ramanujan's second approximation for ellipse perimeter."""
+        a, b = self.rx, self.ry
+        h = ((a - b) ** 2) / ((a + b) ** 2)
+        return math.pi * (a + b) * (1.0 + (3.0 * h) / (10.0 + math.sqrt(4.0 - 3.0 * h)))
+
+    def bbox(self) -> Rect:
+        c = math.cos(self.angle_rad)
+        s = math.sin(self.angle_rad)
+        ux = math.hypot(self.rx * c, self.ry * s)
+        uy = math.hypot(self.rx * s, self.ry * c)
+        return Rect(
+            self.center.x - ux,
+            self.center.y - uy,
+            self.center.x + ux,
+            self.center.y + uy,
+        )
+
+    def centroid(self) -> Point:
+        return Point(self.center.x, self.center.y)
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        """
+        Gradient-normalized implicit distance approximation for an ellipse:
+        `f(p) = (x'/rx)^2 + (y'/ry)^2 - 1`, `d(p) ~ f(p) / ||grad f(p)||_2`.
+        Exact on the boundary (`d = 0`) and first-order Euclidean accurate near the boundary.
+        """
+        pts_arr = np.asarray(pts, dtype=np.float64)
+        dx = pts_arr[..., 0] - self.center.x
+        dy = pts_arr[..., 1] - self.center.y
+        c = math.cos(-self.angle_rad)
+        s = math.sin(-self.angle_rad)
+        lx = c * dx - s * dy
+        ly = s * dx + c * dy
+
+        nx = lx / self.rx
+        ny = ly / self.ry
+        r2 = nx * nx + ny * ny
+        r = np.sqrt(np.maximum(r2, 1e-18))
+        grad_norm = np.hypot(nx / self.rx, ny / self.ry)
+        return np.where(
+            r2 > 1e-12,
+            (r - 1.0) * (r / np.maximum(grad_norm, 1e-12)),
+            -min(self.rx, self.ry),
+        )
+
+    def __repr__(self) -> str:
+        return f"Ellipse(center={self.center}, rx={self.rx}, ry={self.ry}, angle_rad={self.angle_rad})"
