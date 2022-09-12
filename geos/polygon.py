@@ -76,5 +76,78 @@ class Polygon(GeoShape):
             return Polygon(list(reversed(self.vertices)))
         return Polygon(self.vertices)
 
+    @staticmethod
+    def convex_hull(
+        points: Sequence[Union[Point, Tuple[float, float]]]
+    ) -> Polygon:
+        """Andrew's Monotone Chain `O(N log N)` convex hull algorithm."""
+        pts = sorted(
+            {(float(p[0]), float(p[1])) for p in points}
+        )
+        if len(pts) < 3:
+            raise ValueError("Convex hull requires at least 3 distinct points")
+
+        def _cross(
+            o: Tuple[float, float],
+            a: Tuple[float, float],
+            b: Tuple[float, float],
+        ) -> float:
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+        lower: List[Tuple[float, float]] = []
+        for p in pts:
+            while len(lower) >= 2 and _cross(lower[-2], lower[-1], p) <= 0.0:
+                lower.pop()
+            lower.append(p)
+
+        upper: List[Tuple[float, float]] = []
+        for p in reversed(pts):
+            while len(upper) >= 2 and _cross(upper[-2], upper[-1], p) <= 0.0:
+                upper.pop()
+            upper.append(p)
+
+        hull_pts = lower[:-1] + upper[:-1]
+        return Polygon([Point(x, y) for x, y in hull_pts])
+
+    def clip_with_convex(self, clip_poly: Polygon) -> List[Point]:
+        """
+        Sutherland-Hodgman polygon clipping: intersect `self` against convex polygon
+        `clip_poly` and return the clipped vertex list (empty if disjoint).
+        """
+        subject = [Point(v.x, v.y) for v in self.ensure_ccw().vertices]
+        clipper = clip_poly.ensure_ccw().vertices
+        m = len(clipper)
+
+        def _inside(p: Point, a: Point, b: Point) -> bool:
+            return (b - a).cross(p - a) >= -1e-9
+
+        def _line_intersect(p1: Point, p2: Point, a: Point, b: Point) -> Point:
+            r = p2 - p1
+            s = b - a
+            rxs = r.cross(s)
+            if abs(rxs) <= 1e-15:
+                return p2
+            t = (a - p1).cross(s) / rxs
+            return p1.lerp(p2, t)
+
+        output = subject
+        for i in range(m):
+            a = clipper[i]
+            b = clipper[(i + 1) % m]
+            input_list = output
+            output = []
+            if not input_list:
+                break
+            s_pt = input_list[-1]
+            for e_pt in input_list:
+                if _inside(e_pt, a, b):
+                    if not _inside(s_pt, a, b):
+                        output.append(_line_intersect(s_pt, e_pt, a, b))
+                    output.append(e_pt)
+                elif _inside(s_pt, a, b):
+                    output.append(_line_intersect(s_pt, e_pt, a, b))
+                s_pt = e_pt
+        return output
+
     def __repr__(self) -> str:
         return f"Polygon({self.vertices})"
