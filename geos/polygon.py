@@ -149,5 +149,84 @@ class Polygon(GeoShape):
                 s_pt = e_pt
         return output
 
+    def triangulate(self) -> List[Triangle]:
+        """Decompose a simple polygon into `(N - 2)` triangles via ear clipping."""
+        poly = self.ensure_ccw()
+        verts = list(poly.vertices)
+        triangles: List[Triangle] = []
+
+        def _pt_in_tri(p: Point, a: Point, b: Point, c: Point) -> bool:
+            c1 = (b - a).cross(p - a)
+            c2 = (c - b).cross(p - b)
+            c3 = (a - c).cross(p - c)
+            return c1 >= -1e-9 and c2 >= -1e-9 and c3 >= -1e-9
+
+        guard = 0
+        while len(verts) > 3 and guard < len(verts) * len(verts) + 10:
+            guard += 1
+            n = len(verts)
+            ear_found = False
+            for i in range(n):
+                prev_v = verts[(i - 1) % n]
+                curr_v = verts[i]
+                next_v = verts[(i + 1) % n]
+                if (curr_v - prev_v).cross(next_v - curr_v) <= 1e-12:
+                    continue
+                is_ear = True
+                for j in range(n):
+                    if j in ((i - 1) % n, i, (i + 1) % n):
+                        continue
+                    if _pt_in_tri(verts[j], prev_v, curr_v, next_v):
+                        is_ear = False
+                        break
+                if is_ear:
+                    triangles.append(Triangle(prev_v, curr_v, next_v))
+                    verts.pop(i)
+                    ear_found = True
+                    break
+            if not ear_found:
+                break
+
+        if len(verts) == 3:
+            triangles.append(Triangle(verts[0], verts[1], verts[2]))
+        return triangles
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        """
+        Exact vectorized Euclidean Signed Distance Field for a 2D simple polygon
+        using minimum edge distance and even-odd ray-casting winding parity.
+        """
+        pts_arr = np.asarray(pts, dtype=np.float64)
+        orig_shape = pts_arr.shape[:-1]
+        flat_pts = pts_arr.reshape(-1, 2)
+        px = flat_pts[:, 0]
+        py = flat_pts[:, 1]
+
+        v = self.to_numpy()
+        n = len(v)
+        d_sq = np.full(len(flat_pts), np.inf, dtype=np.float64)
+        inside = np.zeros(len(flat_pts), dtype=bool)
+
+        for i in range(n):
+            v1 = v[i]
+            v2 = v[(i + 1) % n]
+            e = v2 - v1
+            w = flat_pts - v1
+            ee = max(float(np.dot(e, e)), 1e-18)
+            h = np.clip((w[:, 0] * e[0] + w[:, 1] * e[1]) / ee, 0.0, 1.0)
+            dx = w[:, 0] - h * e[0]
+            dy = w[:, 1] - h * e[1]
+            d_sq = np.minimum(d_sq, dx * dx + dy * dy)
+
+            cond1 = (v1[1] > py) != (v2[1] > py)
+            denom_y = v2[1] - v1[1]
+            safe_denom = np.where(np.abs(denom_y) > 1e-18, denom_y, 1.0)
+            x_int = v1[0] + (py - v1[1]) * (v2[0] - v1[0]) / safe_denom
+            cond2 = px < x_int
+            inside ^= cond1 & cond2
+
+        sign = np.where(inside, -1.0, 1.0)
+        return (np.sqrt(d_sq) * sign).reshape(orig_shape)
+
     def __repr__(self) -> str:
         return f"Polygon({self.vertices})"
