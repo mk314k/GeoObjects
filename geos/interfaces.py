@@ -53,3 +53,22 @@ class GeoShape:
         """
         raise NotImplementedError
 
+    def __or__(self, other: GeoShape) -> GeoShape:
+        from geos.csg import UnionShape
+
+        return UnionShape(self, other)
+
+    def __and__(self, other: GeoShape) -> GeoShape:
+        from geos.csg import IntersectionShape
+
+        return IntersectionShape(self, other)
+
+    def __sub__(self, other: GeoShape) -> GeoShape:
+        from geos.csg import DifferenceShape
+
+        return DifferenceShape(self, other)
+
+    def __xor__(self, other: GeoShape) -> GeoShape:
+        from geos.csg import SymmetricDifferenceShape
+
+        return SymmetricDifferenceShape(self, other)
