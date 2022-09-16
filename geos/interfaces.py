@@ -53,6 +53,17 @@ class GeoShape:
         """
         raise NotImplementedError
 
+    def to_mask(
+        self,
+        height: int,
+        width: int,
+        bounds: Tuple[float, float, float, float] = None,
+    ) -> np.ndarray:
+        """Rasterize the shape into a `(height, width)` boolean NumPy mask."""
+        from geos.raster import rasterize_mask
+
+        return rasterize_mask(self, height, width, bounds=bounds)
+
     def __or__(self, other: GeoShape) -> GeoShape:
         from geos.csg import UnionShape
 
