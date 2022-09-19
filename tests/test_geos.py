@@ -106,6 +106,74 @@ class TestPrimitivesAndAnalyticGeometry(unittest.TestCase):
         self.assertAlmostEqual(clipped_poly.area(), 24.0)
 
 
+class TestRectSetAndCSGRaster(unittest.TestCase):
+    def test_rectset_spatial_merger_and_sweep_line_disjoint_union(self):
+        # 1. Transitive bounding merger + merge_allowed=False isolation
+        rs = RectSet((500, 500), block_size=100, block_mode=True)
+        rs.add_rect(Rect(10, 10, 40, 40))
+        rs.add_rect(Rect(35, 20, 70, 50))
+        rs.add_rect(Rect(20, 15, 60, 45, merge_allowed=False))
+        self.assertEqual(len(rs), 2)
+
+        # Spatial point and rectangle range queries
+        hits_pt = rs.query_point((25, 25))
+        self.assertEqual(len(hits_pt), 2)
+        hits_box = rs.query_rect(Rect(65, 45, 80, 60))
+        self.assertEqual(hits_box, [Rect(10, 10, 70, 50)])
+
+        # 2. Exact sweep-line union area and disjoint decomposition (merge_overlaps=False)
+        rs_exact = RectSet((500, 500), block_mode=False)
+        r1 = Rect(0, 0, 10, 10)   # area 100
+        r2 = Rect(5, 5, 15, 15)   # area 100, overlap with r1 is [5,10]x[5,10] = 25
+        rs_exact.add_rect(r1, merge_overlaps=False)
+        rs_exact.add_rect(r2, merge_overlaps=False)
+        self.assertAlmostEqual(rs_exact.union_area(), 175.0)
+
+        disjoint = rs_exact.decompose_disjoint()
+        self.assertAlmostEqual(sum(d.area() for d in disjoint), 175.0)
+        for i in range(len(disjoint)):
+            for j in range(i + 1, len(disjoint)):
+                self.assertEqual(disjoint[i].intersection_area(disjoint[j]), 0.0)
+
+    def test_csg_boolean_operators_and_vectorized_sdf(self):
+        r = Rect(20.0, 20.0, 80.0, 80.0)
+        c = Circle((50.0, 50.0), 20.0)
+
+        union_shape = r | c
+        inter_shape = r & c
+        diff_shape = r - c
+        xor_shape = r ^ c
+        smooth_shape = SmoothUnionShape(r, c, k=4.0)
+
+        # Since c is completely inside r:
+        # - r | c has the same mask as r
+        # - r & c has the same mask as c
+        # - (r - c) and (r & c) partition r into two disjoint sets
+        mask_r = rasterize_mask(r, 100, 100, bounds=(0, 0, 100, 100))
+        mask_c = rasterize_mask(c, 100, 100, bounds=(0, 0, 100, 100))
+        mask_u = rasterize_mask(union_shape, 100, 100, bounds=(0, 0, 100, 100))
+        mask_i = rasterize_mask(inter_shape, 100, 100, bounds=(0, 0, 100, 100))
+        mask_d = rasterize_mask(diff_shape, 100, 100, bounds=(0, 0, 100, 100))
+        mask_x = rasterize_mask(xor_shape, 100, 100, bounds=(0, 0, 100, 100))
+
+        np.testing.assert_array_equal(mask_u, mask_r)
+        np.testing.assert_array_equal(mask_i, mask_c)
+        np.testing.assert_array_equal(mask_d, mask_x)
+        np.testing.assert_array_equal(mask_d | mask_i, mask_r)
+        self.assertFalse(np.any(mask_d & mask_i))
+
+        # Smooth union SDF is bounded above by hard union SDF everywhere
+        grid = make_grid(50, 50, bounds=(0, 0, 100, 100))
+        self.assertTrue(np.all(smooth_shape.sdf(grid) <= union_shape.sdf(grid) + 1e-9))
+
+        # Anti-aliased fill lies in [0, 1] and stroke mask extracts boundary band
+        aa = anti_aliased_fill(c, 64, 64, bounds=(0, 0, 100, 100), edge_width=1.5)
+        self.assertGreaterEqual(float(aa.min()), 0.0)
+        self.assertLessEqual(float(aa.max()), 1.0)
+        stroke = stroke_mask(c, stroke_width=3.0, height=64, width=64, bounds=(0, 0, 100, 100))
+        self.assertTrue(np.any(stroke))
+        self.assertFalse(stroke[32, 32])  # Center of circle is not on the boundary stroke
+
 
 if __name__ == "__main__":
     unittest.main()
