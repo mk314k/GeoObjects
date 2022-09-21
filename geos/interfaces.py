@@ -2,19 +2,21 @@
 Base interface (`GeoShape`) for 2D geometric shapes.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, Tuple, Union
+from typing import TYPE_CHECKING, Optional, Tuple, Union
 import numpy as np
 
 if TYPE_CHECKING:
     from geos.point import Point
     from geos.rect import Rect
+    from geos.transforms import Transform2D
 
 
 class GeoShape:
     """
     Abstract base class for 2D geometric shapes supporting analytic queries,
     vectorized NumPy Signed Distance Fields (`sdf`), boolean raster masks (`to_mask`),
-    and Constructive Solid Geometry operators (`|`, `&`, `-`, `^`).
+    2x2 affine transformations, morphological offsets, and Constructive Solid Geometry
+    operators (`|`, `&`, `-`, `^`).
     """
 
     def area(self) -> float:
@@ -63,6 +65,49 @@ class GeoShape:
         from geos.raster import rasterize_mask
 
         return rasterize_mask(self, height, width, bounds=bounds)
+
+    def transform(self, xform: Transform2D) -> GeoShape:
+        """Apply a `Transform2D` affine transformation to this shape."""
+        from geos.transforms import TransformedShape
+
+        return TransformedShape(self, xform)
+
+    def translate(self, dx: float, dy: float) -> GeoShape:
+        from geos.transforms import Transform2D, TransformedShape
+
+        return TransformedShape(self, Transform2D.translation(dx, dy))
+
+    def scale(
+        self,
+        sx: float,
+        sy: Optional[float] = None,
+        center: Optional[Union[Point, Tuple[float, float]]] = None,
+    ) -> GeoShape:
+        from geos.transforms import Transform2D, TransformedShape
+
+        c = center if center is not None else self.centroid()
+        return TransformedShape(self, Transform2D.scaling(sx, sy, center=c))
+
+    def rotate(
+        self,
+        angle_rad: float,
+        center: Optional[Union[Point, Tuple[float, float]]] = None,
+    ) -> GeoShape:
+        from geos.transforms import Transform2D, TransformedShape
+
+        c = center if center is not None else self.centroid()
+        return TransformedShape(self, Transform2D.rotation(angle_rad, center=c))
+
+    def shear(
+        self,
+        shx: float = 0.0,
+        shy: float = 0.0,
+        center: Optional[Union[Point, Tuple[float, float]]] = None,
+    ) -> GeoShape:
+        from geos.transforms import Transform2D, TransformedShape
+
+        c = center if center is not None else self.centroid()
+        return TransformedShape(self, Transform2D.shear(shx, shy, center=c))
 
     def __or__(self, other: GeoShape) -> GeoShape:
         from geos.csg import UnionShape

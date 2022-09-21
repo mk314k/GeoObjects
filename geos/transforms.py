@@ -135,3 +135,40 @@ class Transform2D:
 
     def __repr__(self) -> str:
         return f"Transform2D(matrix={self.matrix.tolist()}, offset={self.offset.tolist()})"
+
+
+class TransformedShape(GeoShape):
+    """
+    Wraps any `GeoShape` under a 2D affine transformation `transform`.
+    Queries map world coordinates `p` back to local coordinates via `transform.inverse()`.
+    """
+
+    def __init__(self, shape: GeoShape, transform: Transform2D) -> None:
+        self.shape = shape
+        self.transform = transform
+        self._inv = transform.inverse()
+        self._dist_scale = max(1e-9, transform.min_singular_value())
+        self._area_scale = abs(transform.determinant())
+
+    def area(self) -> float:
+        return self.shape.area() * self._area_scale
+
+    def perimeter(self) -> float:
+        return self.shape.perimeter() * self._dist_scale
+
+    def bbox(self) -> Rect:
+        b = self.shape.bbox()
+        corners = [self.transform.apply_point(pt) for pt in b.vertices()]
+        xs = [c.x for c in corners]
+        ys = [c.y for c in corners]
+        return Rect(min(xs), min(ys), max(xs), max(ys))
+
+    def centroid(self) -> Point:
+        return self.transform.apply_point(self.shape.centroid())
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        local_pts = self._inv.apply(pts)
+        return self.shape.sdf(local_pts) * self._dist_scale
+
+    def __repr__(self) -> str:
+        return f"TransformedShape({self.shape!r}, {self.transform!r})"
