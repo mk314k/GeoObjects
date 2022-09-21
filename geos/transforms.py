@@ -172,3 +172,148 @@ class TransformedShape(GeoShape):
 
     def __repr__(self) -> str:
         return f"TransformedShape({self.shape!r}, {self.transform!r})"
+
+
+class GridRepeatShape(GeoShape):
+    """
+    Spatial domain repetition wrapper that tiles `shape` across a 2D grid with
+    spacing `(period_x, period_y)` inside optional bounding limits `bounds`.
+    """
+
+    def __init__(
+        self,
+        shape: GeoShape,
+        period_x: float,
+        period_y: float,
+        bounds: Optional[Rect] = None,
+    ) -> None:
+        if period_x <= 0 or period_y <= 0:
+            raise ValueError("Grid periods must be positive")
+        self.shape = shape
+        self.period_x = float(period_x)
+        self.period_y = float(period_y)
+        self.bounds = bounds if bounds is not None else shape.bbox()
+
+    def area(self) -> float:
+        return self.shape.area()
+
+    def perimeter(self) -> float:
+        return self.shape.perimeter()
+
+    def bbox(self) -> Rect:
+        return self.bounds
+
+    def centroid(self) -> Point:
+        return self.bounds.centroid()
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        pts_arr = np.asarray(pts, dtype=np.float64)
+        c = self.shape.centroid()
+        px, py = self.period_x, self.period_y
+        # Fold coordinates into the fundamental cell centered at c
+        dx = pts_arr[..., 0] - c.x
+        dy = pts_arr[..., 1] - c.y
+        folded_x = c.x + (dx - px * np.round(dx / px))
+        folded_y = c.y + (dy - py * np.round(dy / py))
+        folded = np.stack([folded_x, folded_y], axis=-1)
+        d_tile = self.shape.sdf(folded)
+        if self.bounds is not None:
+            return np.maximum(d_tile, self.bounds.sdf(pts_arr))
+        return d_tile
+
+
+class RadialRepeatShape(GeoShape):
+    """
+    Angular domain repetition wrapper that replicates `shape` `count` times
+    symmetrically around `center`.
+    """
+
+    def __init__(
+        self,
+        shape: GeoShape,
+        count: int,
+        center: Union[Point, Tuple[float, float]] = (0.0, 0.0),
+    ) -> None:
+        if count < 1:
+            raise ValueError("Radial repeat count must be >= 1")
+        self.shape = shape
+        self.count = int(count)
+        self.center = center if isinstance(center, Point) else Point(center[0], center[1])
+
+    def area(self) -> float:
+        return self.shape.area() * self.count
+
+    def perimeter(self) -> float:
+        return self.shape.perimeter() * self.count
+
+    def bbox(self) -> Rect:
+        b = self.shape.bbox()
+        max_r = max(self.center.distance_to(v) for v in b.vertices())
+        return Rect(
+            self.center.x - max_r,
+            self.center.y - max_r,
+            self.center.x + max_r,
+            self.center.y + max_r,
+        )
+
+    def centroid(self) -> Point:
+        return Point(self.center.x, self.center.y)
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        pts_arr = np.asarray(pts, dtype=np.float64)
+        dx = pts_arr[..., 0] - self.center.x
+        dy = pts_arr[..., 1] - self.center.y
+        r = np.hypot(dx, dy)
+        theta = np.arctan2(dy, dx)
+        sector = 2.0 * math.pi / self.count
+        folded_theta = theta - sector * np.round(theta / sector)
+        fx = self.center.x + r * np.cos(folded_theta)
+        fy = self.center.y + r * np.sin(folded_theta)
+        return self.shape.sdf(np.stack([fx, fy], axis=-1))
+
+
+class TwistWarpShape(GeoShape):
+    """
+    Non-linear space warp that twists `shape` around `center` by `strength`
+    radians per unit distance along $Y$ (or radial distance).
+    """
+
+    def __init__(
+        self,
+        shape: GeoShape,
+        strength: float,
+        center: Union[Point, Tuple[float, float]] = (0.0, 0.0),
+    ) -> None:
+        self.shape = shape
+        self.strength = float(strength)
+        self.center = center if isinstance(center, Point) else Point(center[0], center[1])
+
+    def area(self) -> float:
+        return self.shape.area()
+
+    def perimeter(self) -> float:
+        return self.shape.perimeter()
+
+    def bbox(self) -> Rect:
+        b = self.shape.bbox()
+        max_r = max(self.center.distance_to(v) for v in b.vertices())
+        return Rect(
+            self.center.x - max_r,
+            self.center.y - max_r,
+            self.center.x + max_r,
+            self.center.y + max_r,
+        )
+
+    def centroid(self) -> Point:
+        return Point(self.center.x, self.center.y)
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        pts_arr = np.asarray(pts, dtype=np.float64)
+        dx = pts_arr[..., 0] - self.center.x
+        dy = pts_arr[..., 1] - self.center.y
+        r = np.hypot(dx, dy)
+        ang = -self.strength * r
+        cs, sn = np.cos(ang), np.sin(ang)
+        wx = self.center.x + cs * dx - sn * dy
+        wy = self.center.y + sn * dx + cs * dy
+        return self.shape.sdf(np.stack([wx, wy], axis=-1))
