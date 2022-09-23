@@ -127,3 +127,154 @@ class Capsule(DiagramNode):
 
     def sdf(self, pts: np.ndarray) -> np.ndarray:
         return self.segment.sdf(pts, radius=self.radius)
+
+
+class Diamond(DiagramNode):
+    """
+    Axis-aligned rhombus centered at `center` with horizontal half-width `rx` and
+    vertical half-height `ry` (decision / gateway nodes).
+    """
+
+    def __init__(
+        self,
+        center: Union[Point, Tuple[float, float]],
+        rx: float,
+        ry: float,
+    ) -> None:
+        if rx <= 0 or ry <= 0:
+            raise ValueError("Diamond half-extents rx and ry must be positive")
+        self.center = center if isinstance(center, Point) else Point(center[0], center[1])
+        self.rx = float(rx)
+        self.ry = float(ry)
+        self._poly = Polygon(
+            [
+                Point(self.center.x, self.center.y - self.ry),
+                Point(self.center.x + self.rx, self.center.y),
+                Point(self.center.x, self.center.y + self.ry),
+                Point(self.center.x - self.rx, self.center.y),
+            ]
+        )
+
+    def area(self) -> float:
+        return 2.0 * self.rx * self.ry
+
+    def perimeter(self) -> float:
+        return 4.0 * math.hypot(self.rx, self.ry)
+
+    def bbox(self) -> Rect:
+        return Rect(
+            self.center.x - self.rx,
+            self.center.y - self.ry,
+            self.center.x + self.rx,
+            self.center.y + self.ry,
+        )
+
+    def centroid(self) -> Point:
+        return Point(self.center.x, self.center.y)
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        return self._poly.sdf(pts)
+
+
+class Parallelogram(DiagramNode):
+    """
+    Skewed box defined by bounding center `center`, base `width`, `height`,
+    and horizontal top/bottom skew offset `skew_x` (data I/O and stream nodes).
+    """
+
+    def __init__(
+        self,
+        center: Union[Point, Tuple[float, float]],
+        width: float,
+        height: float,
+        skew_x: float = 12.0,
+    ) -> None:
+        self.center = center if isinstance(center, Point) else Point(center[0], center[1])
+        self.w = float(width)
+        self.h = float(height)
+        self.skew_x = float(skew_x)
+        cx, cy = self.center.x, self.center.y
+        hw, hh = 0.5 * self.w, 0.5 * self.h
+        s = 0.5 * self.skew_x
+        self._poly = Polygon(
+            [
+                Point(cx - hw - s, cy - hh),
+                Point(cx + hw - s, cy - hh),
+                Point(cx + hw + s, cy + hh),
+                Point(cx - hw + s, cy + hh),
+            ]
+        )
+
+    def area(self) -> float:
+        return self.w * self.h
+
+    def perimeter(self) -> float:
+        return self._poly.perimeter()
+
+    def bbox(self) -> Rect:
+        return self._poly.bbox()
+
+    def centroid(self) -> Point:
+        return Point(self.center.x, self.center.y)
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        return self._poly.sdf(pts)
+
+
+class RegularPolygon(DiagramNode):
+    """Regular $N$-gon with circumradius `radius` centered at `center`."""
+
+    def __init__(
+        self,
+        center: Union[Point, Tuple[float, float]],
+        radius: float,
+        num_sides: int = 6,
+        angle_rad: float = 0.0,
+    ) -> None:
+        if num_sides < 3 or radius <= 0:
+            raise ValueError("RegularPolygon requires num_sides >= 3 and radius > 0")
+        self.center = center if isinstance(center, Point) else Point(center[0], center[1])
+        self.radius = float(radius)
+        self.num_sides = int(num_sides)
+        self.angle_rad = float(angle_rad)
+
+        verts = [
+            Point(
+                self.center.x
+                + self.radius * math.cos(self.angle_rad + 2.0 * math.pi * i / self.num_sides),
+                self.center.y
+                + self.radius * math.sin(self.angle_rad + 2.0 * math.pi * i / self.num_sides),
+            )
+            for i in range(self.num_sides)
+        ]
+        self._poly = Polygon(verts)
+
+    def area(self) -> float:
+        n = self.num_sides
+        return 0.5 * n * self.radius * self.radius * math.sin(2.0 * math.pi / n)
+
+    def perimeter(self) -> float:
+        n = self.num_sides
+        return 2.0 * n * self.radius * math.sin(math.pi / n)
+
+    def bbox(self) -> Rect:
+        return self._poly.bbox()
+
+    def centroid(self) -> Point:
+        return Point(self.center.x, self.center.y)
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        return self._poly.sdf(pts)
+
+
+class Hexagon(RegularPolygon):
+    """Regular 6-sided polygon (microservice / worker pod / hexagonal architecture node)."""
+
+    def __init__(
+        self,
+        center: Union[Point, Tuple[float, float]],
+        radius: float,
+        flat_top: bool = True,
+    ) -> None:
+        ang = 0.0 if flat_top else math.pi / 6.0
+        super().__init__(center, radius, num_sides=6, angle_rad=ang)
