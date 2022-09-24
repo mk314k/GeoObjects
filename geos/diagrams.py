@@ -374,3 +374,111 @@ class CloudShape(DiagramNode):
             h = np.clip(0.5 + 0.5 * (dp - d) / k, 0.0, 1.0)
             d = dp * (1.0 - h) + d * h - k * h * (1.0 - h)
         return d
+
+
+class Arrow(GeoShape):
+    """
+    Directed connector arrow from `start` to `end` with shaft thickness `shaft_width`
+    and triangular arrowhead `(head_length, head_width)`.
+    """
+
+    def __init__(
+        self,
+        start: Union[Point, Tuple[float, float]],
+        end: Union[Point, Tuple[float, float]],
+        shaft_width: float = 4.0,
+        head_length: float = 14.0,
+        head_width: float = 14.0,
+    ) -> None:
+        self.start = start if isinstance(start, Point) else Point(start[0], start[1])
+        self.end = end if isinstance(end, Point) else Point(end[0], end[1])
+        self.shaft_width = float(shaft_width)
+        self.head_length = float(head_length)
+        self.head_width = float(head_width)
+
+        vec = self.end - self.start
+        L = max(1e-6, vec.norm())
+        ux, uy = vec.x / L, vec.y / L
+        nx, ny = -uy, ux
+
+        hl = min(self.head_length, 0.8 * L)
+        hw = 0.5 * self.head_width
+        neck = Point(self.end.x - ux * hl, self.end.y - uy * hl)
+
+        self.shaft = Capsule(self.start, neck, 0.5 * self.shaft_width)
+        self.head = Triangle(
+            self.end,
+            Point(neck.x + nx * hw, neck.y + ny * hw),
+            Point(neck.x - nx * hw, neck.y - ny * hw),
+        )
+
+    def area(self) -> float:
+        return self.shaft.area() + self.head.area()
+
+    def perimeter(self) -> float:
+        return self.shaft.perimeter() + self.head.perimeter()
+
+    def bbox(self) -> Rect:
+        return self.shaft.bbox().bounding_union(self.head.bbox())
+
+    def centroid(self) -> Point:
+        return self.start.lerp(self.end, 0.5)
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        return np.minimum(self.shaft.sdf(pts), self.head.sdf(pts))
+
+
+class OrthogonalConnector(GeoShape):
+    """
+    Manhattan right-angle routed connector through a sequence of waypoints
+    (or automatically routed `horizontal -> vertical -> horizontal` between two ports)
+    with a terminal arrowhead.
+    """
+
+    def __init__(
+        self,
+        waypoints: Sequence[Union[Point, Tuple[float, float]]],
+        shaft_width: float = 4.0,
+        head_length: float = 12.0,
+        head_width: float = 12.0,
+    ) -> None:
+        if len(waypoints) < 2:
+            raise ValueError("OrthogonalConnector requires at least 2 points")
+        pts = [p if isinstance(p, Point) else Point(p[0], p[1]) for p in waypoints]
+        if len(pts) == 2 and abs(pts[0].x - pts[1].x) > 1e-6 and abs(pts[0].y - pts[1].y) > 1e-6:
+            mid_x = 0.5 * (pts[0].x + pts[1].x)
+            pts = [pts[0], Point(mid_x, pts[0].y), Point(mid_x, pts[1].y), pts[1]]
+        self.waypoints = pts
+        self.shaft_width = float(shaft_width)
+        r = 0.5 * self.shaft_width
+        self._segments = [
+            Capsule(pts[i], pts[i + 1], r) for i in range(len(pts) - 2)
+        ]
+        self._terminal_arrow = Arrow(
+            pts[-2],
+            pts[-1],
+            shaft_width=shaft_width,
+            head_length=head_length,
+            head_width=head_width,
+        )
+
+    def area(self) -> float:
+        return sum(s.area() for s in self._segments) + self._terminal_arrow.area()
+
+    def perimeter(self) -> float:
+        return sum(s.perimeter() for s in self._segments) + self._terminal_arrow.perimeter()
+
+    def bbox(self) -> Rect:
+        b = self._terminal_arrow.bbox()
+        for s in self._segments:
+            b = b.bounding_union(s.bbox())
+        return b
+
+    def centroid(self) -> Point:
+        return self.bbox().centroid()
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        d = self._terminal_arrow.sdf(pts)
+        for seg in self._segments:
+            d = np.minimum(d, seg.sdf(pts))
+        return d
