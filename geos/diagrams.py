@@ -278,3 +278,99 @@ class Hexagon(RegularPolygon):
     ) -> None:
         ang = 0.0 if flat_top else math.pi / 6.0
         super().__init__(center, radius, num_sides=6, angle_rad=ang)
+
+
+class Cylinder(DiagramNode):
+    """
+    2D orthographic projection of a 3D database cylinder with vertical body
+    and top/bottom elliptical caps (`cap_ry`).
+    """
+
+    def __init__(
+        self,
+        center: Union[Point, Tuple[float, float]],
+        width: float,
+        height: float,
+        cap_ry: float = None,
+    ) -> None:
+        self.center = center if isinstance(center, Point) else Point(center[0], center[1])
+        self.w = float(width)
+        self.h = float(height)
+        rx = 0.5 * self.w
+        ry = float(cap_ry) if cap_ry is not None else min(0.18 * self.h, 0.35 * rx)
+        self.cap_ry = ry
+
+        body_hh = max(1e-3, 0.5 * self.h - ry)
+        cx, cy = self.center.x, self.center.y
+        self.body = Rect(cx - rx, cy - body_hh, cx + rx, cy + body_hh)
+        self.top_cap = Ellipse((cx, cy + body_hh), rx, ry)
+        self.bottom_cap = Ellipse((cx, cy - body_hh), rx, ry)
+        self._silhouette = self.body | self.top_cap | self.bottom_cap
+
+    def area(self) -> float:
+        return self.body.area() + self.top_cap.area()
+
+    def perimeter(self) -> float:
+        return 2.0 * self.body.height() + self.top_cap.perimeter()
+
+    def bbox(self) -> Rect:
+        cx, cy = self.center.x, self.center.y
+        return Rect(cx - 0.5 * self.w, cy - 0.5 * self.h, cx + 0.5 * self.w, cy + 0.5 * self.h)
+
+    def centroid(self) -> Point:
+        return Point(self.center.x, self.center.y)
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        return self._silhouette.sdf(pts)
+
+    def top_rim_sdf(self, pts: np.ndarray) -> np.ndarray:
+        """Signed distance to the top elliptical cap (useful for drawing the cylinder inner rim)."""
+        return np.abs(self.top_cap.sdf(pts))
+
+
+class CloudShape(DiagramNode):
+    """
+    Cloud / VPC boundary node built from the smooth union of overlapping circular lobes
+    and a rounded base pill.
+    """
+
+    def __init__(
+        self,
+        center: Union[Point, Tuple[float, float]],
+        width: float,
+        height: float,
+    ) -> None:
+        self.center = center if isinstance(center, Point) else Point(center[0], center[1])
+        self.w = float(width)
+        self.h = float(height)
+        cx, cy = self.center.x, self.center.y
+        hw, hh = 0.5 * self.w, 0.5 * self.h
+
+        self._parts: List[GeoShape] = [
+            Capsule((cx - 0.52 * hw, cy - 0.28 * hh), (cx + 0.52 * hw, cy - 0.28 * hh), 0.42 * hh),
+            Circle((cx - 0.42 * hw, cy + 0.02 * hh), 0.44 * hh),
+            Circle((cx + 0.02 * hw, cy + 0.22 * hh), 0.52 * hh),
+            Circle((cx + 0.44 * hw, cy - 0.02 * hh), 0.40 * hh),
+        ]
+
+    def area(self) -> float:
+        return 0.72 * self.w * self.h
+
+    def perimeter(self) -> float:
+        return 2.4 * (self.w + self.h)
+
+    def bbox(self) -> Rect:
+        cx, cy = self.center.x, self.center.y
+        return Rect(cx - 0.55 * self.w, cy - 0.45 * self.h, cx + 0.55 * self.w, cy + 0.55 * self.h)
+
+    def centroid(self) -> Point:
+        return Point(self.center.x, self.center.y)
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        d = self._parts[0].sdf(pts)
+        k = max(1e-3, 0.08 * min(self.w, self.h))
+        for part in self._parts[1:]:
+            dp = part.sdf(pts)
+            h = np.clip(0.5 + 0.5 * (dp - d) / k, 0.0, 1.0)
+            d = dp * (1.0 - h) + d * h - k * h * (1.0 - h)
+        return d
