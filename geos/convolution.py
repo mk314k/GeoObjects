@@ -136,3 +136,79 @@ def sharpen(
     x = np.asarray(arr, dtype=np.float64)
     blurred = gaussian_blur(x, sigma=sigma)
     return x + float(amount) * (x - blurred)
+
+
+class OffsetShape(GeoShape):
+    """
+    Morphological SDF offset wrapper:
+      - `offset > 0`: dilation / rounding (`d(p) - offset`)
+      - `offset < 0`: erosion / shrinking (`d(p) + |offset|`)
+    """
+
+    def __init__(self, shape: GeoShape, offset: float) -> None:
+        self.shape = shape
+        self.offset = float(offset)
+
+    def area(self) -> float:
+        return max(
+            0.0,
+            self.shape.area()
+            + self.shape.perimeter() * self.offset
+            + math.pi * self.offset * abs(self.offset),
+        )
+
+    def perimeter(self) -> float:
+        return max(0.0, self.shape.perimeter() + 2.0 * math.pi * self.offset)
+
+    def bbox(self) -> Rect:
+        b = self.shape.bbox()
+        r = self.offset
+        return Rect(b.x1 - r, b.y1 - r, b.x2 + r, b.y2 + r)
+
+    def centroid(self) -> Point:
+        return self.shape.centroid()
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        return self.shape.sdf(pts) - self.offset
+
+
+class ShellShape(GeoShape):
+    """
+    Hollow boundary shell (annular/tubular wall) around `shape`'s boundary of
+    total wall thickness `thickness`: `|d(p)| - thickness / 2`.
+    """
+
+    def __init__(self, shape: GeoShape, thickness: float) -> None:
+        if thickness <= 0:
+            raise ValueError("Shell thickness must be positive")
+        self.shape = shape
+        self.thickness = float(thickness)
+
+    def area(self) -> float:
+        return self.shape.perimeter() * self.thickness
+
+    def perimeter(self) -> float:
+        return 2.0 * self.shape.perimeter()
+
+    def bbox(self) -> Rect:
+        b = self.shape.bbox()
+        hw = 0.5 * self.thickness
+        return Rect(b.x1 - hw, b.y1 - hw, b.x2 + hw, b.y2 + hw)
+
+    def centroid(self) -> Point:
+        return self.shape.centroid()
+
+    def sdf(self, pts: np.ndarray) -> np.ndarray:
+        return np.abs(self.shape.sdf(pts)) - 0.5 * self.thickness
+
+
+def dilate_sdf(shape: GeoShape, radius: float) -> OffsetShape:
+    return OffsetShape(shape, abs(float(radius)))
+
+
+def erode_sdf(shape: GeoShape, radius: float) -> OffsetShape:
+    return OffsetShape(shape, -abs(float(radius)))
+
+
+def shell_sdf(shape: GeoShape, thickness: float) -> ShellShape:
+    return ShellShape(shape, thickness)

@@ -109,6 +109,21 @@ class GeoShape:
         c = center if center is not None else self.centroid()
         return TransformedShape(self, Transform2D.shear(shx, shy, center=c))
 
+    def dilate(self, radius: float) -> GeoShape:
+        from geos.convolution import dilate_sdf
+
+        return dilate_sdf(self, radius)
+
+    def erode(self, radius: float) -> GeoShape:
+        from geos.convolution import erode_sdf
+
+        return erode_sdf(self, radius)
+
+    def shell(self, thickness: float) -> GeoShape:
+        from geos.convolution import shell_sdf
+
+        return shell_sdf(self, thickness)
+
     def __or__(self, other: GeoShape) -> GeoShape:
         from geos.csg import UnionShape
 
