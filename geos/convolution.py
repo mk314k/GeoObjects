@@ -84,3 +84,55 @@ def convolve2d(
                 continue
             out += weight * padded[r : r + h, c : c + w]
     return out
+
+
+def gaussian_kernel_1d(sigma: float, radius: int = None) -> np.ndarray:
+    """Generate a normalized 1D Gaussian kernel with standard deviation `sigma`."""
+    if sigma <= 0.0:
+        return np.array([1.0], dtype=np.float64)
+    if radius is None:
+        radius = max(1, int(math.ceil(3.0 * sigma)))
+    xs = np.arange(-radius, radius + 1, dtype=np.float64)
+    k = np.exp(-0.5 * (xs / sigma) ** 2)
+    return k / np.sum(k)
+
+
+def gaussian_blur(
+    arr: np.ndarray, sigma: float, pad_mode: str = "edge"
+) -> np.ndarray:
+    """Separable 2D Gaussian blur on a 2D field or 3D `(H, W, C)` image."""
+    if sigma <= 0.0:
+        return np.asarray(arr, dtype=np.float64).copy()
+    k = gaussian_kernel_1d(sigma)
+    return convolve_separable(arr, k, k, pad_mode=pad_mode)
+
+
+def box_blur(arr: np.ndarray, radius: int, pad_mode: str = "edge") -> np.ndarray:
+    """Separable 2D uniform box filter of window `(2*radius + 1) x (2*radius + 1)`."""
+    r = max(0, int(radius))
+    if r == 0:
+        return np.asarray(arr, dtype=np.float64).copy()
+    size = 2 * r + 1
+    k = np.full(size, 1.0 / size, dtype=np.float64)
+    return convolve_separable(arr, k, k, pad_mode=pad_mode)
+
+
+def sobel_gradients(field: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Compute 2D Sobel partial derivatives `(df_dx, df_dy)` on a scalar field `(H, W)`
+    (e.g., an SDF grid to extract unit surface normals for 2.5D bevel shading).
+    """
+    deriv = np.array([-0.5, 0.0, 0.5], dtype=np.float64)
+    smooth = np.array([0.25, 0.5, 0.25], dtype=np.float64)
+    gx = convolve_separable(field, deriv, smooth, pad_mode="edge")
+    gy = convolve_separable(field, smooth, deriv, pad_mode="edge")
+    return gx, gy
+
+
+def sharpen(
+    arr: np.ndarray, amount: float = 1.0, sigma: float = 1.0
+) -> np.ndarray:
+    """Unsharp mask filter `arr + amount * (arr - gaussian_blur(arr, sigma))`."""
+    x = np.asarray(arr, dtype=np.float64)
+    blurred = gaussian_blur(x, sigma=sigma)
+    return x + float(amount) * (x - blurred)
