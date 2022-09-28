@@ -156,3 +156,83 @@ class StrokeStyle:
         else:
             stroke_sdf = np.abs(sdf_grid - hw) - hw
         return smooth_coverage(stroke_sdf, aa_width=aa_width)
+
+
+class DropShadow:
+    """Soft Gaussian-blurred drop shadow offset by `(dx, dy)`."""
+
+    def __init__(
+        self,
+        offset: Tuple[float, float] = (4.0, -4.0),
+        blur_sigma: float = 4.0,
+        color: ColorInput = (0.0, 0.0, 0.0, 0.35),
+    ) -> None:
+        self.offset = (float(offset[0]), float(offset[1]))
+        self.blur_sigma = max(0.0, float(blur_sigma))
+        self.rgba = parse_color(color)
+
+
+class OuterGlow:
+    """Soft luminous halo radiating outward from `sdf == 0`."""
+
+    def __init__(
+        self,
+        radius: float = 8.0,
+        color: ColorInput = (0.2, 0.6, 1.0, 0.6),
+    ) -> None:
+        self.radius = max(1e-6, float(radius))
+        self.rgba = parse_color(color)
+
+
+class BevelEffect:
+    """
+    2.5D inner bevel lighting computed from Sobel surface normals of the shape's
+    Signed Distance Field.
+    """
+
+    def __init__(
+        self,
+        depth: float = 6.0,
+        light_dir: Tuple[float, float] = (-0.7071, 0.7071),
+        highlight: float = 0.25,
+        shadow: float = 0.22,
+    ) -> None:
+        self.depth = max(1e-3, float(depth))
+        lx, ly = float(light_dir[0]), float(light_dir[1])
+        ln = max(1e-12, math.hypot(lx, ly))
+        self.light_dir = (lx / ln, ly / ln)
+        self.highlight = float(highlight)
+        self.shadow = float(shadow)
+
+    def apply(self, fill_rgba: np.ndarray, sdf_grid: np.ndarray) -> np.ndarray:
+        gx, gy = sobel_gradients(sdf_grid)
+        gn = np.maximum(1e-9, np.hypot(gx, gy))
+        nx, ny = gx / gn, gy / gn
+        # Outward normal points toward +grad(sdf); inner bevel ramp decays with depth inside
+        rim = np.clip(1.0 - np.abs(sdf_grid) / self.depth, 0.0, 1.0)
+        ndotl = (nx * self.light_dir[0] + ny * self.light_dir[1]) * rim
+        delta = np.where(ndotl >= 0.0, ndotl * self.highlight, ndotl * self.shadow)
+        out = fill_rgba.copy()
+        out[..., :3] = np.clip(out[..., :3] + delta[..., None], 0.0, 1.0)
+        return out
+
+
+class ShapeStyle:
+    """Bundle of fill, stroke, shadow, glow, and bevel effects for rendering a `GeoShape`."""
+
+    def __init__(
+        self,
+        fill: Optional[Union[FillStyle, ColorInput]] = (0.25, 0.52, 0.96, 1.0),
+        stroke: Optional[StrokeStyle] = None,
+        shadow: Optional[DropShadow] = None,
+        glow: Optional[OuterGlow] = None,
+        bevel: Optional[BevelEffect] = None,
+    ) -> None:
+        if fill is None or isinstance(fill, FillStyle):
+            self.fill = fill
+        else:
+            self.fill = SolidFill(fill)
+        self.stroke = stroke
+        self.shadow = shadow
+        self.glow = glow
+        self.bevel = bevel
