@@ -236,3 +236,101 @@ class ShapeStyle:
         self.shadow = shadow
         self.glow = glow
         self.bevel = bevel
+
+
+class Canvas:
+    """
+    2D RGBA compositing canvas that evaluates and layers styled `GeoShape` objects
+    over a coordinate viewport `bounds = (x1, y1, x2, y2)`.
+    """
+
+    def __init__(
+        self,
+        height: int,
+        width: int,
+        bounds: Optional[Tuple[float, float, float, float]] = None,
+        background: ColorInput = (1.0, 1.0, 1.0, 1.0),
+    ) -> None:
+        self.height = int(height)
+        self.width = int(width)
+        self.bounds = bounds if bounds is not None else (0.0, 0.0, float(width), float(height))
+        self.grid = make_grid(self.height, self.width, bounds=self.bounds)
+        bg = parse_color(background)
+        self.buffer = np.empty((self.height, self.width, 4), dtype=np.float64)
+        self.buffer[...] = bg
+
+        dx = (self.bounds[2] - self.bounds[0]) / max(1, self.width)
+        dy = (self.bounds[3] - self.bounds[1]) / max(1, self.height)
+        self.pixel_size = 0.5 * (abs(dx) + abs(dy))
+
+    def draw(
+        self,
+        shape: GeoShape,
+        style: Optional[ShapeStyle] = None,
+        fill: Optional[Union[FillStyle, ColorInput]] = None,
+        stroke: Optional[StrokeStyle] = None,
+        shadow: Optional[DropShadow] = None,
+        glow: Optional[OuterGlow] = None,
+        bevel: Optional[BevelEffect] = None,
+    ) -> Canvas:
+        """Render `shape` with the given style/effects and composite onto `self.buffer`."""
+        if style is None:
+            style = ShapeStyle(
+                fill=fill if fill is not None else (0.25, 0.52, 0.96, 1.0),
+                stroke=stroke,
+                shadow=shadow,
+                glow=glow,
+                bevel=bevel,
+            )
+
+        aa = 1.25 * self.pixel_size
+
+        # 1. Drop shadow layer
+        if style.shadow is not None:
+            sh = style.shadow
+            shifted_grid = self.grid - np.array([sh.offset[0], sh.offset[1]], dtype=np.float64)
+            sh_sdf = shape.sdf(shifted_grid)
+            sh_cov = smooth_coverage(sh_sdf, aa_width=aa)
+            if sh.blur_sigma > 0.0:
+                sh_cov = gaussian_blur(sh_cov, sigma=sh.blur_sigma / max(1e-6, self.pixel_size))
+            sh_layer = np.zeros_like(self.buffer)
+            sh_layer[..., :3] = sh.rgba[:3]
+            sh_layer[..., 3] = np.clip(sh_cov * sh.rgba[3], 0.0, 1.0)
+            self.buffer = alpha_over(self.buffer, sh_layer)
+
+        sdf_grid = shape.sdf(self.grid)
+
+        # 2. Outer glow layer
+        if style.glow is not None:
+            gl = style.glow
+            outside_dist = np.maximum(0.0, sdf_grid)
+            gl_alpha = np.exp(-0.5 * (outside_dist / gl.radius) ** 2) * (sdf_grid > -aa)
+            gl_layer = np.zeros_like(self.buffer)
+            gl_layer[..., :3] = gl.rgba[:3]
+            gl_layer[..., 3] = np.clip(gl_alpha * gl.rgba[3], 0.0, 1.0)
+            self.buffer = alpha_over(self.buffer, gl_layer)
+
+        # 3. Fill + optional 2.5D bevel layer
+        if style.fill is not None:
+            fill_rgba = style.fill.evaluate(self.grid, sdf_grid=sdf_grid)
+            if style.bevel is not None:
+                fill_rgba = style.bevel.apply(fill_rgba, sdf_grid)
+            cov = smooth_coverage(sdf_grid, aa_width=aa)
+            fill_layer = fill_rgba.copy()
+            fill_layer[..., 3] = np.clip(fill_rgba[..., 3] * cov, 0.0, 1.0)
+            self.buffer = alpha_over(self.buffer, fill_layer)
+
+        # 4. Stroke layer
+        if style.stroke is not None and style.stroke.width > 0.0:
+            st = style.stroke
+            st_cov = st.coverage(sdf_grid, aa_width=aa)
+            st_layer = np.zeros_like(self.buffer)
+            st_layer[..., :3] = st.rgba[:3]
+            st_layer[..., 3] = np.clip(st.rgba[3] * st_cov, 0.0, 1.0)
+            self.buffer = alpha_over(self.buffer, st_layer)
+
+        return self
+
+    def to_uint8(self) -> np.ndarray:
+        """Return the composited canvas as an `(H, W, 4)` `uint8` RGBA image."""
+        return np.clip(np.round(self.buffer * 255.0), 0, 255).astype(np.uint8)

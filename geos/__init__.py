@@ -1,4 +1,19 @@
 from geos.circle import Circle, Ellipse
+from geos.convolution import (
+    OffsetShape,
+    ShellShape,
+    box_blur,
+    convolve1d_axis,
+    convolve2d,
+    convolve_separable,
+    dilate_sdf,
+    erode_sdf,
+    gaussian_blur,
+    gaussian_kernel_1d,
+    sharpen,
+    shell_sdf,
+    sobel_gradients,
+)
 from geos.csg import (
     CSGNode,
     DifferenceShape,
@@ -6,6 +21,19 @@ from geos.csg import (
     SmoothUnionShape,
     SymmetricDifferenceShape,
     UnionShape,
+)
+from geos.diagrams import (
+    Arrow,
+    Capsule,
+    CloudShape,
+    Cylinder,
+    DiagramNode,
+    Diamond,
+    Hexagon,
+    OrthogonalConnector,
+    Parallelogram,
+    RegularPolygon,
+    RoundedRect,
 )
 from geos.interfaces import GeoShape
 from geos.point import Point, Segment
@@ -19,6 +47,28 @@ from geos.raster import (
 )
 from geos.rect import Rect
 from geos.rect_set import RectSet
+from geos.styling import (
+    BevelEffect,
+    Canvas,
+    DropShadow,
+    FillStyle,
+    LinearGradient,
+    OuterGlow,
+    RadialGradient,
+    ShapeStyle,
+    SolidFill,
+    StrokeStyle,
+    alpha_over,
+    parse_color,
+    smooth_coverage,
+)
+from geos.transforms import (
+    GridRepeatShape,
+    RadialRepeatShape,
+    Transform2D,
+    TransformedShape,
+    TwistWarpShape,
+)
 from geos.triangle import Triangle
 
 __all__ = [
@@ -31,6 +81,48 @@ __all__ = [
     "Ellipse",
     "Triangle",
     "Polygon",
+    "DiagramNode",
+    "RoundedRect",
+    "Capsule",
+    "Diamond",
+    "Parallelogram",
+    "RegularPolygon",
+    "Hexagon",
+    "Cylinder",
+    "CloudShape",
+    "Arrow",
+    "OrthogonalConnector",
+    "Transform2D",
+    "TransformedShape",
+    "GridRepeatShape",
+    "RadialRepeatShape",
+    "TwistWarpShape",
+    "convolve1d_axis",
+    "convolve_separable",
+    "convolve2d",
+    "gaussian_kernel_1d",
+    "gaussian_blur",
+    "box_blur",
+    "sobel_gradients",
+    "sharpen",
+    "OffsetShape",
+    "ShellShape",
+    "dilate_sdf",
+    "erode_sdf",
+    "shell_sdf",
+    "FillStyle",
+    "SolidFill",
+    "LinearGradient",
+    "RadialGradient",
+    "StrokeStyle",
+    "DropShadow",
+    "OuterGlow",
+    "BevelEffect",
+    "ShapeStyle",
+    "Canvas",
+    "parse_color",
+    "smooth_coverage",
+    "alpha_over",
     "CSGNode",
     "UnionShape",
     "IntersectionShape",
