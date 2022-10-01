@@ -1,39 +1,66 @@
 # GeoObjects (`geos`)
 
-2D geometric primitives, spatial-grid rectangle merging, Constructive Solid Geometry (CSG), and vectorized NumPy Signed Distance Fields (SDFs).
+2D geometric primitives, software architecture diagram nodes, $2 \times 2$ matrix & space transformations, spatial-grid rectangle merging, Constructive Solid Geometry (CSG), 2D convolutions, and SDF styling/effects.
 
 ## Overview
 
-`geos` provides analytic 2D geometric shapes (`Point`, `Segment`, `Rect`, `Circle`, `Ellipse`, `Triangle`, `Polygon`), multi-rectangle spatial indexing and exact union decomposition (`RectSet`), boolean CSG expression trees (`|`, `&`, `-`, `^`, `SmoothUnionShape`), and vectorized NumPy rasterization (`sdf`, `to_mask`, `anti_aliased_fill`, `stroke_mask`).
+`geos` provides analytic and Signed Distance Field (SDF) representations for 2D shapes, diagramming components, affine and non-linear space transformations, multi-rectangle spatial indexing (`RectSet`), separable/2D convolutions, and multi-layer RGBA rendering (`Canvas`).
 
 ### Modules
 
-- `geos/interfaces.py`: Base `GeoShape` interface with CSG operator overloads (`|`, `&`, `-`, `^`).
-- `geos/point.py`: `Point` (2D vector arithmetic, dot/cross product, rotation, linear interpolation) and `Segment` (segment-segment intersection, closest-point projection, capsule SDF).
-- `geos/rect.py`: `Rect` (axis-aligned bounding box, exact intersection, bounding union, `difference_rects` decomposing $A \setminus B$ into up to 4 disjoint sub-rectangles, IoU, and box SDF).
-- `geos/circle.py`: `Circle` (analytic lens intersection area, circle-rect overlap, Euclidean SDF) and `Ellipse` (Ramanujan perimeter, rotated bounding box, gradient-normalized implicit SDF).
-- `geos/triangle.py`: `Triangle` (signed area, barycentric coordinates, incircle, circumcircle, exact triangle SDF).
-- `geos/polygon.py`: `Polygon` (shoelace area, area-weighted centroid, Monotone Chain $O(N \log N)$ convex hull, Sutherland-Hodgman convex clipping, ear-clipping triangulation, and ray-cast winding + segment SDF).
-- `geos/rect_set.py`:
-  - **2D Spatial-Block Transitive Merger (`add_rect`)**: Partitions space into `block_size x block_size` cells to merge overlapping rectangles into connected-component bounding boxes.
-  - **Sweep-Line Exact Union & Disjoint Decomposition (`union_area`, `decompose_disjoint`)**: Slices overlapping rectangles along $X$-events and merges 1D $Y$-intervals to compute exact union area and partition the union into pairwise disjoint rectangles.
-- `geos/csg.py` & `geos/raster.py`: Boolean CSG nodes (`UnionShape`, `IntersectionShape`, `DifferenceShape`, `SymmetricDifferenceShape`, `SmoothUnionShape`) and vectorized NumPy grid evaluators (`make_grid`, `render_sdf`, `rasterize_mask`, `anti_aliased_fill`, `stroke_mask`).
+- **`geos/interfaces.py`**: Base `GeoShape` interface with CSG operators (`|`, `&`, `-`, `^`), affine transformation helpers (`.translate()`, `.scale()`, `.rotate()`, `.shear()`, `.transform()`), and morphological SDF offsets (`.dilate()`, `.erode()`, `.shell()`).
+- **`geos/point.py` & `geos/rect.py`**:
+  - `Point` & `Segment`: 2D vector arithmetic, dot/cross products, segment-segment intersection, closest-point projection, and capsule SDF.
+  - `Rect`: Axis-aligned rectangle with exact intersection, bounding union, `difference_rects` (decomposing $A \setminus B$ into up to 4 pairwise disjoint sub-rectangles), IoU, and box SDF.
+- **`geos/circle.py`, `geos/triangle.py` & `geos/polygon.py`**:
+  - `Circle` & `Ellipse`: Analytic circle-circle lens intersection area, Ramanujan perimeter, rotated bounding boxes, and Euclidean/implicit SDFs.
+  - `Triangle`: Barycentric coordinates, incircle, circumcircle, and exact 2D triangle SDF.
+  - `Polygon`: Shoelace signed area, area-weighted centroid, Monotone Chain $O(N \log N)$ convex hull, Sutherland-Hodgman convex clipping, ear-clipping triangulation, and ray-cast winding + segment SDF.
+- **`geos/diagrams.py` (Software Architecture & Flowchart Nodes)**:
+  - `DiagramNode` port anchors (`top`, `bottom`, `left`, `right`, `center`).
+  - `RoundedRect`, `Capsule`, `Diamond`, `Parallelogram`, `RegularPolygon`, `Hexagon`, `Cylinder` (3D database projection), `CloudShape` (smooth-CSG lobes), `Arrow`, and `OrthogonalConnector` (Manhattan right-angle routing).
+- **`geos/transforms.py` ($2 \times 2$ Matrix & Space Transformations)**:
+  - `Transform2D`: Arbitrary $2 \times 2$ linear matrix $A$ + offset $t$ ($p' = A p + t$), supporting rotation, scaling, shear, reflection across an arbitrary axis, matrix composition (`T1 @ T2`), and exact inverse (`T.inverse()`).
+  - `TransformedShape`: Evaluates any `GeoShape` under inverse-mapped coordinates with singular-value metric SDF scaling.
+  - `GridRepeatShape`, `RadialRepeatShape`, and `TwistWarpShape` for $O(1)$ domain repetition and non-linear space warping.
+- **`geos/rect_set.py` (Spatial Grid & Sweep-Line Union)**:
+  - **2D Spatial-Block Transitive Merger (`add_rect`)**: Partitions space into `block_size x block_size` cells to merge overlapping rectangles into connected-component bounding boxes and accelerate `query_point` / `query_rect`.
+  - **Sweep-Line Exact Union & Disjoint Decomposition (`union_area`, `decompose_disjoint`)**: Slices overlapping rectangles across $X$-events and merges 1D $Y$-intervals into pairwise disjoint rectangles.
+- **`geos/convolution.py` & `geos/styling.py` (Filtering, Effects & RGBA Compositor)**:
+  - `convolve1d_axis`, `convolve_separable`, `convolve2d`, `gaussian_blur`, `box_blur`, `sobel_gradients`, `sharpen`, `OffsetShape`, and `ShellShape`.
+  - `SolidFill`, `LinearGradient`, `RadialGradient`, `StrokeStyle`, `DropShadow`, `OuterGlow`, `BevelEffect` (2.5D Sobel normal shading), and `Canvas` (Porter-Duff `alpha_over` RGBA compositor).
 
 ## Usage
 
 ```python
-from geos import Circle, Polygon, Rect, RectSet, anti_aliased_fill
+from geos import (
+    BevelEffect,
+    Canvas,
+    Cylinder,
+    DropShadow,
+    LinearGradient,
+    OrthogonalConnector,
+    RoundedRect,
+    StrokeStyle,
+)
 
-# 1. Boolean CSG and vectorized NumPy anti-aliased rasterization
-plate = Rect(10, 10, 90, 90) - Circle((50, 50), radius=22)
-coverage = anti_aliased_fill(plate, height=256, width=256, bounds=(0, 0, 100, 100))
+canvas = Canvas(height=240, width=420, bounds=(0, 0, 420, 240), background="#F8FAFC")
 
-# 2. Exact sweep-line union area and disjoint decomposition of overlapping rectangles
-rset = RectSet((500, 500), block_mode=False)
-rset.add_rect(Rect(0, 0, 40, 40), merge_overlaps=False)
-rset.add_rect(Rect(20, 20, 60, 60), merge_overlaps=False)
-print("Exact union area:", rset.union_area())
-print("Disjoint rectangles:", rset.decompose_disjoint())
+api_node = RoundedRect(40, 70, 170, 170, radius=12.0)
+db_node = Cylinder((320, 120), width=90, height=110)
+connector = OrthogonalConnector([api_node.port("right"), db_node.port("left")], shaft_width=4.0)
+
+canvas.draw(
+    api_node,
+    fill=LinearGradient((40, 70), (170, 170), "#3B82F6", "#1D4ED8"),
+    stroke=StrokeStyle(width=2.0, color="#1E293B"),
+    shadow=DropShadow(offset=(4.0, -4.0), blur_sigma=4.0),
+    bevel=BevelEffect(depth=5.0),
+)
+canvas.draw(db_node, fill="#10B981", stroke=StrokeStyle(width=2.0, color="#064E3B"))
+canvas.draw(connector, fill="#334155")
+
+rgba_image = canvas.to_uint8()
 ```
 
 ## Running Tests
